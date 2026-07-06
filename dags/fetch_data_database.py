@@ -8,6 +8,7 @@ from airflow.operators.python import PythonOperator
 from airflow.providers.microsoft.mssql.hooks.mssql import MsSqlHook
 #from airflow.utils.trigger_rule import TriggerRule
 from datetime import datetime
+from airflow.utils.email import send_email
 logger = logging.getLogger(__name__)
 
 # ----------------------------------------------------
@@ -74,7 +75,7 @@ def fetch_employee_data(**context):
         # Convert to JSON
         # -----------------------------------------
 
-        employee_json = df.to_dict(orient="records")
+        #employee_json = df.to_dict(orient="records")
 
         # -----------------------------------------
         # Push into XCom
@@ -101,7 +102,41 @@ def fetch_employee_data(**context):
         logger.exception("Employee extraction failed.")
 
         raise AirflowException(str(e))
+def send_employee_email(**context):
 
+    ti = context["ti"]
+
+    # Pull the CSV file path from XCom
+    file_path = ti.xcom_pull(
+        task_ids="fetch_employee_data",
+        key="FILE_PATH"
+    )
+
+    if not file_path:
+        raise AirflowException("CSV file path not found in XCom.")
+
+    logger.info(f"Received from XCom: {file_path}")
+
+    #subject = "Employee Data Extracted Successfully"
+
+    html_content = f"""
+    <h3>Employee Export Successful</h3>
+
+    <p>The employee data has been extracted successfully.</p>
+
+    <b>CSV File:</b><br>
+
+    {file_path}
+    """
+    subject= "Employee Data Extracted Successfully"
+    send_email(
+        to=["vannadanikhitha@gmail.com"],
+        subject=subject,
+        html_content=html_content,
+        files=[file_path]          # Attach CSV file
+    )
+
+    logger.info("Email sent successfully.")
 
 # ----------------------------------------------------
 # Default Arguments
@@ -135,5 +170,10 @@ with DAG(
         provide_context=True,
         #trigger_rule=TriggerRule.ALL_SUCCESS,
     )
+    send_email_task = PythonOperator(
+    task_id="send_email",
+    python_callable=send_employee_email,
+    provide_context=True,
+    )
 
-    fetch_employee
+    fetch_employee>>send_email_task
